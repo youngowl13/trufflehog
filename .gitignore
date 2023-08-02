@@ -3,5 +3,6 @@ dist
 .env
 *.test
 
+
 # binary
 trufflehog

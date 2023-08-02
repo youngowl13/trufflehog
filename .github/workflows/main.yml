@@ -1,0 +1,119 @@
+name: Secret Scanning
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Run truffleHog
+      run: |
+        python3 -m venv env
+        source env/bin/activate
+        python -m pip install truffleHog
+        python env/bin/trufflehog --json https://github.com/yashwarrhan/pepper.git > truffleHog.json || true
+    - name: Run detect-secrets
+      run: |
+        python3 -m venv env-ds
+        source env-ds/bin/activate
+        pip install detect-secrets
+        detect-secrets scan > detect-secrets.json
+      
+    - name: Install tabulate
+      run: |
+        python3 -m pip install tabulate
+    
+    - name: Parse trufflehog JSON results
+      run: |
+        import json
+        import os
+        import datetime
+        from tabulate import tabulate
+        def parse_trufflehog_output(file_path):
+            table = []  # Initialize an empty table
+            table_headers = ["Branch", "Commit", "Commit Hash", "Date", "Reason"]
+            with open(file_path, "r") as file:
+                for line in file:
+                    try:
+                        data = json.loads(line)
+                        row = [data["branch"], data["commit"], data["commitHash"], data["date"], data["reason"]]
+                        table.append(row)
+                    except json.JSONDecodeError as e:
+                        print(f"Failed to parse line as JSON: {line}")
+            return table_headers, table
+        if _name_ == "_main_":
+            input_file_path = "truffleHog.json"  # Use the correct path to the truffleHog.json file here
+            table_headers, table_data = parse_trufflehog_output(input_file_path)
+            print(tabulate(table_data, headers=table_headers, tablefmt='grid'))
+            # Save the parsed data into a text file
+            nameofuser = "yash"  # Replace this with your username
+            nameofjob = "trufflehog"   # Replace this with the job name or any relevant identifier
+            now = datetime.datetime.now()
+            date_and_time = now.strftime("%Y-%m-%d_%H-%M")
+            output_file_path = f"{nameofuser}{nameofjob}{date_and_time}.txt"
+            with open(output_file_path, "w") as file:
+                file.write(tabulate(table_data, headers=table_headers, tablefmt='grid'))
+            print(f"Output saved to: {output_file_path}")
+      shell: python
+
+    - name: Parse detect-secrets JSON results
+      run: |
+        import json
+        import datetime
+        from tabulate import tabulate
+        def parse_detect_secrets_output(data):
+            table = []  # Initialize an empty table
+            table_headers = ["Secret Type", "File", "Hashed Secret", "Line Number"]
+            for file, secrets in data["results"].items():
+                for secret in secrets:
+                    if not isinstance(secret, dict):
+                        continue
+                    secret_type = secret.get("type", "NA")
+                    filename = secret.get("filename", "NA")
+                    hashed_secret = secret.get("hashed_secret", "NA")
+                    line_number = secret.get("line_number", "NA")
+                    row = [secret_type, filename, hashed_secret, line_number]
+                    table.append(row)
+            return table_headers, table
+        with open('detect-secrets.json', 'r') as f:
+            detect_secrets_data = json.load(f)
+        table_headers, table_data = parse_detect_secrets_output(detect_secrets_data)
+        print(tabulate(table_data, headers=table_headers, tablefmt='grid'))
+        # Save the parsed data into a text file
+        nameofuser = "yash"  # Replace this with your username
+        nameofjob = "detect-secrets"   # Replace this with the job name or any relevant identifier
+        now = datetime.datetime.now()
+        date_and_time = now.strftime("%Y-%m-%d_%H-%M")
+        output_file_path = f"{nameofuser}{nameofjob}{date_and_time}.txt"
+        with open(output_file_path, "w") as file:
+            file.write(tabulate(table_data, headers=table_headers, tablefmt='grid'))
+        print(f"Output saved to: {output_file_path}")
+      shell: python
+
+
+    - name: Upload truffleHog results
+      uses: actions/upload-artifact@v2
+      with:
+        name: truffleHog-results
+        path: truffleHog.json
+
+    - name: Upload detect-secrets results
+      uses: actions/upload-artifact@v2
+      with:
+        name: detect-secrets-results
+        path: detect-secrets.json
+
+    - name: Upload parsed results
+      uses: actions/upload-artifact@v2
+      with:
+        name: parsed-results
+        path: |
+          yash_trufflehog_*.txt
+          yash_detect-secrets_*.txt
